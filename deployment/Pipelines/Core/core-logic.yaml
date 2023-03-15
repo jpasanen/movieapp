@@ -1,0 +1,96 @@
+# Release to a specific environment. Customize this by giving parameters
+
+parameters:
+  serviceName: "" # Name of the service, used for Azure DevOps environment and variable group names
+  environment: "" # Name of the environment, used for displaynames in release status view
+  azureSubscriptionName: "" # Name of the service connection in Azure DevOps
+  resourceGroupName: "" # Where main resources of the app will be deployed to
+  location: "West Europe" # Which Azure Datacenter resources (resource groups) will be deployed to
+  armStorageResourceGroupName: "" # Where linked template storage is / will be deployed to
+  armStorageAccountName: "" # Name of the storage account where the arm templates will be stored
+  skipSynapseDDLDeployment: false # If true, skips deployment of Synapse DDL(databases, tables, views etc)
+  artifactBranch: "" # Take in artifact branch
+  dependsOn: ""
+
+stages:
+  - stage: "release_${{ lower(parameters.environment) }}"
+    displayName: "release ${{ parameters.environment }}"
+    dependsOn: "${{ lower(parameters.dependsOn) }}"
+    ## Add variable group (here for example group Development_variables if env is Development), point to secrets in it with their key eg. $(secretName)
+    variables:
+      - group: "${{ parameters.serviceName }}_${{ parameters.environment }}_variables"
+
+    pool:
+      name: Azure Pipelines
+      vmImage: windows-2022
+
+    jobs:
+      - deployment: "deploy_arm"
+        displayName: "Deploy Bicep Templates"
+        dependsOn: [] # Runs always first
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - download: none # Disable downloading default artifacts
+                - task: AzureCLI@2
+                  displayName: "Deploy Bicep templates"
+                  inputs:
+                    azureSubscription: "${{ parameters.azureSubscriptionName }}"
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az --version
+                      az deployment group create --name arm-main-$(build.buildid) --resource-group "${{ parameters.resourceGroupName }}" --template-file "$(Build.SourcesDirectory)/deployment/Bicep/main.bicep" --parameters "$(Build.SourcesDirectory)/deployment/Bicep/arm.Demo.params.json" synapseSqlAdministratorLoginPassword="$(synapseSqlAdministratorLoginPassword)" buildId=$(build.buildid)
+
+                - task: AzurePowerShell@5
+                  displayName: "Parse main ARM Output Parameters" # Update names to be able to start ADF triggers again.
+                  inputs:
+                    azureSubscription: "${{ parameters.azureSubscriptionName }}"
+                    ScriptType: InlineScript
+                    Inline: |
+                      $deployment= (Get-AzResourceGroupDeployment -ResourceGroupName "${{ parameters.resourceGroupName }}" | Where-Object ProvisioningState -eq "Succeeded" | Where-Object DeploymentName -like "arm-main-*" )[0]
+                      Write-Output "Fetching naming convention from deployment $($deployment.DeploymentName)"
+                      $outputs= $deployment.outputs
+
+                      foreach ($key in $outputs.Keys)
+                      {
+                        $value = $outputs[$key].Value
+                        Write-Host "##vso[task.setvariable variable=$key]$value"
+                      }
+                    FailOnStandardError: true
+                    azurePowerShellVersion: "LatestVersion"
+
+                - task: AzureCLI@2
+                  displayName: Add Synapse admin group
+                  continueOnError: true
+                  inputs:
+                    azureSubscription: ${{ parameters.azureSubscriptionName }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: >
+                      $roles = az synapse role assignment create `
+                        --workspace-name '$(synapseWorkspaceName)' `
+                        --role "Synapse Administrator" `
+                        --assignee '$(developerGroupId)'
+
+                - ${{ if eq(parameters.skipSynapseDDLDeployment, false)}}:
+                    - task: AzurePowerShell@5
+                      inputs:
+                        azureSubscription: "${{ parameters.azureSubscriptionName }}"
+                        ScriptType: FilePath
+                        ScriptPath: $(Build.SourcesDirectory)/deployment/Scripts/Synapse-Serverless-DDL-Setup.ps1
+                        failOnStandardError: true
+                        # Just list secrets from variable groups to scriptArguments as shown
+                        ScriptArguments: >-
+                          -SynapseServerless "$(synapseServerless)"
+                          -sqlAdminUsername "$(sqlAdminUsername)"
+                          -sqlAdminPassword "$(sqlAdminPassword)"
+                          -PipelineWorkspace "$(Build.SourcesDirectory)"
+                          -DatalakeName "$(datalakeName)"
+                          -SQLUserPassword "$(sqlUserPassword)"
+                        azurePowerShellVersion: "LatestVersion"
+                        pwsh: true
+                      displayName: "Deploy databases, objects and credentials"

@@ -1,0 +1,31 @@
+# Release flow for the demo env
+
+# Runtime parameters to select artifacts
+parameters:
+  - name: skipSynapseDDLDeployment
+    displayName: Skip Synapse DDL (Databases, tables, views etc) deployment
+    type: boolean
+    default: false
+  - name: artifactBranch
+    displayName: Artifact Branch (e.g. feature/myfeature)
+    type: string
+    default: $(Build.SourceBranch)
+
+# Disable triggering from code updates to repo
+trigger: none
+
+variables:
+  - template: Variables/variables.yaml
+  - name: serviceName #Used for variable group and environment names
+    value: <replace>
+
+stages:
+  - template: core-logic.yaml # call release-template file, and give it parameters. You can use this to deploy to multiple envs by calling it multiple times.
+    parameters:
+      serviceName: ${{ variables.serviceName }} # Used for variable group and environment names
+      environment: "${{variables.demo_environment}}" # Name of the environment
+      azureSubscriptionName: $(demo_azureSubscriptionName) # Azure subscription name
+      resourceGroupName: $(demo_resourceGroupName) # Resource group for deployment
+      location: $(location)
+      skipSynapseDDLDeployment: ${{ parameters.skipSynapseDDLDeployment }} # Synapse DDL execution flag
+      artifactBranch: ${{ parameters.artifactBranch }}

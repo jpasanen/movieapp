@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "TheMovieDatabase:Url": "https://api.themoviedb.org",
+    "TheMovieDatabase:Key": "<replace>",
+    "TheMovieDatabase:ImageUrl": "https://image.tmdb.org/t/p/w200",
+    "BlobServiceSettings:ConnectionString": "<replace>"
+  }
+}

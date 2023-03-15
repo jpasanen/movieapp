@@ -1,0 +1,16 @@
+variables:
+  # Generic for all environments
+  - name: location
+    value: "West Europe"
+
+  ########
+
+  # Demo
+  - name: demo_environment
+    value: "Demo"
+  - name: demo_shortEnv
+    value: "demo"
+  - name: demo_azureSubscriptionName
+    value: "<replace>" # Really the name of the service connection in Azure DevOps
+  - name: demo_resourceGroupName
+    value: "<replace>"
